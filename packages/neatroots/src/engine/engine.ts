@@ -414,6 +414,7 @@ export class Engine {
   // ----------------------------------------------------------------- rules
 
   private applyRules(run: LiveRun, snap: TraceSnapshot, atEnd: boolean, fresh?: ReadonlySet<string>): void {
+    if (!this.isCurrentRun(run)) return;
     for (const lc of this.registry.rules()) {
       const rule = lc.check as RuleCheck;
       if (!this.appliesTo(rule, run)) continue;
@@ -528,11 +529,13 @@ export class Engine {
     snap: TraceSnapshot,
     spanId: string | null,
   ): Promise<"unavailable" | void> {
+    if (!this.isCurrentRun(run)) return;
     let result: DecisionResult;
     try {
       result = await this.decisions.decide(evidence, [toQuestion(check, params)]);
       this.decisionDown = false;
     } catch (err) {
+      if (!this.isCurrentRun(run)) return;
       if (err instanceof DecisionUnavailableError || err instanceof LlmUnavailableError) {
         if (!this.decisionDown) log.warn(`questions skipped: ${(err as Error).message}`);
         this.decisionDown = true;
@@ -558,6 +561,7 @@ export class Engine {
       }
       return;
     }
+    if (!this.isCurrentRun(run)) return;
     const answer = result.answers[check.id];
     const verdict = flagged(check, result);
     this.roots.store.insertDecision({
@@ -587,9 +591,22 @@ export class Engine {
       // A second look, with a quote that must be in the run, before anything is raised.
       if ((run.rejected.get(check.id) ?? 0) >= 3) return;
       const check2 = check.kind === "yes_no" ? await verifyFlag(this.llm, fillTemplate(check.ask, params) || check.ask, evidence) : undefined;
+      if (!this.isCurrentRun(run)) return;
       if (check2 && !check2.verified) {
         run.rejected.set(check.id, (run.rejected.get(check.id) ?? 0) + 1);
         log.debug(`${check.id}: flag not confirmed on a second look${check2.quote ? ` (quote: ${clip(check2.quote, 80)})` : ""}`);
+        return;
+      }
+      // Another evaluation can finish while verifyFlag awaits. Re-read and insert
+      // without another await so a run/check gets only one open finding.
+      const concurrent = this.roots.store.openFindingFor(run.traceId, check.id);
+      if (concurrent) {
+        const f = spanId ? addOccurrence(this.roots.store, concurrent, spanId, spanIds)
+          : this.roots.store.updateFinding(concurrent.id, {
+            probability: Math.max(verdict.probability, concurrent.probability ?? 0),
+            evidence_span_ids: [...new Set([...concurrent.evidence_span_ids, ...spanIds])],
+          });
+        if (f) this.roots.bus.emit("finding", f);
         return;
       }
       const evidenceSpans = snap.spans.filter((s) => spanIds.includes(s.id));
@@ -630,6 +647,11 @@ export class Engine {
       if (rest) this.roots.bus.emit("finding", rest);
       else this.resolve(open);
     }
+  }
+
+  /** Ignore work for a deleted run or a generation replaced by recheck. */
+  private isCurrentRun(run: LiveRun): boolean {
+    return this.live.get(run.traceId) === run && this.roots.store.getRun(run.traceId) !== undefined;
   }
 
   private findOpen(traceId: string, checkId: string, spanId: string | null): Finding | undefined {
