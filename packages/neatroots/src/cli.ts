@@ -145,7 +145,6 @@ program
       );
     }
     if (!cfg.checkDirs.includes(checksDir)) cfg.checkDirs.push(checksDir);
-    console.log(`✓ checks folder: ${path.relative(cwd, checksDir)} (registered with neatroots)`);
     const envLines = [`NEATLOGS_ENDPOINT=http://localhost:${p}`, `NEATLOGS_API_KEY=neatroots-local`];
     if (opts.writeEnv) {
       const envPath = path.join(cwd, ".env");
@@ -176,11 +175,15 @@ program
       cfg.projects[opts.project] = { ...(cfg.projects[opts.project] ?? {}), steering: opts.steering as SteeringMode };
       console.log(`✓ steering for ${opts.project}: ${opts.steering} (add the neatroots-steer hook to your agent; see docs/steering.md)`);
     }
-    saveConfig(cfg);
     if (await running(p)) {
-      await api(p, "/api/checks/reload", { method: "POST" }).catch(() => undefined);
-      if (opts.steering && opts.project) await api(p, "/api/settings", { method: "POST", body: JSON.stringify({ project: opts.project, steering: opts.steering }) }).catch(() => undefined);
-    }
+      // Register with the running instance before it saves: its stale checkDirs must not
+      // overwrite the directory just added by init. This endpoint reloads the registry too.
+      await api(p, "/api/settings", { method: "POST", body: JSON.stringify({
+        check_dir: checksDir,
+        ...(opts.steering ? { project: opts.project, steering: opts.steering } : {}),
+      }) });
+    } else saveConfig(cfg);
+    console.log(`✓ checks folder: ${path.relative(cwd, checksDir)} (registered with neatroots)`);
     if (opts.mcp) {
       const c = findClient(opts.mcp);
       if (!c) throw new Error(`unknown agent "${opts.mcp}". Known: ${CLIENTS.map((x) => x.id).join(", ")}`);
