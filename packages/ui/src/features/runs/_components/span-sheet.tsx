@@ -83,6 +83,10 @@ export function SpanSheet({
                 <span>
                   {[ended ? dur(durationMs) : "not ended", v?.model, v?.totalTokens !== undefined ? `${num(v.promptTokens)} in / ${num(v.completionTokens)} out tokens` : null].filter(Boolean).join(" · ")}
                 </span>
+                {d.kind === "LLM" && <>
+                  <span>First chunk: {d.stream_timing?.first_chunk_ms != null ? dur(d.stream_timing.first_chunk_ms) : "unknown"}</span>
+                  <span>First text: {d.stream_timing?.first_text_ms != null ? dur(d.stream_timing.first_text_ms) : "unknown"}</span>
+                </>}
                 <span className="inline-flex items-center gap-1 font-mono">
                   {midId(d.span_id)}
                   <CopyButton content={d.span_id} copyMessage="Span ID copied" />

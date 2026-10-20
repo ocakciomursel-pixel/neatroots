@@ -249,6 +249,7 @@ export interface OtherAgent {
 }
 
 export interface SpanDetail {
+  stream_timing?: { first_chunk_ms: number | null; first_text_ms: number | null };
   span_id: string;
   start_ns: string;
   end_ns: string;

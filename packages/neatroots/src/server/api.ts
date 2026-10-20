@@ -5,6 +5,7 @@ import { streamSSE } from "hono/streaming";
 import type { Roots } from "../core.js";
 import { kvToPlain } from "../otlp/types.js";
 import { buildView } from "../semantics/view.js";
+import { streamTiming } from "../semantics/stream-timing.js";
 import { hardwareTier, llmErrorMessage } from "../models/llm.js";
 import { regexProblem } from "../util/regex.js";
 import { allowedEndpoint } from "../relay/endpoint.js";
@@ -87,6 +88,7 @@ export function spanDetail(roots: Roots, traceId: string, spanId: string) {
     status: full.span.status,
     start_ns: full.span.startTimeUnixNano,
     end_ns: full.span.endTimeUnixNano,
+    stream_timing: streamTiming(full.span),
     view,
     attributes: kvToPlain(full.span.attributes),
     events: full.span.events.map((e) => ({ name: e.name, time_ns: e.timeUnixNano, attributes: kvToPlain(e.attributes) })),
