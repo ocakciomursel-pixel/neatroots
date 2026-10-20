@@ -68,12 +68,40 @@ describe("neatroots-steer (ts)", () => {
     expect(seen.messages[0].content).toContain("<neatroots-guidance>");
   });
 
+  it("wraps an Anthropic client create and stream", async () => {
+    notes.push(note(), note());
+    let seenCreate: any;
+    let seenStream: any;
+    const client = wrapAnthropic({
+      messages: {
+        create: async (p: any) => ((seenCreate = p), "create-ok"),
+        stream: async (p: any) => ((seenStream = p), "stream-ok"),
+      },
+    });
+    expect(await (client as any).messages.create({ messages: [{ role: "user", content: "q" }] })).toBe("create-ok");
+    expect(seenCreate.messages[0].content).toContain("<neatroots-guidance>");
+
+    expect(await (client as any).messages.stream({ messages: [{ role: "user", content: "q2" }] })).toBe("stream-ok");
+    expect(seenStream.messages[0].content).toContain("<neatroots-guidance>");
+  });
+
+  it("raises NeatrootsHalt for halt notes during Anthropic stream", async () => {
+    notes.push(note("Your rule says stop.", "halt"));
+    const client = wrapAnthropic({
+      messages: {
+        stream: async (_p: unknown) => "should not run",
+      },
+    });
+    await expect((client as any).messages.stream({ messages: [{ role: "user", content: "q" }] })).rejects.toBeInstanceOf(NeatrootsHalt);
+  });
+
   it("wraps the client a withOptions copy returns", async () => {
-    notes.push(note("Your rule says stop.", "halt"), note("Your rule says stop.", "halt"));
+    notes.push(note("Your rule says stop.", "halt"), note("Your rule says stop.", "halt"), note("Your rule says stop.", "halt"));
     const makeOpenAI = (): any => ({ chat: { completions: { create: async (_p: unknown) => "should not run" } }, withOptions: () => makeOpenAI() });
     await expect(wrapOpenAI(makeOpenAI()).withOptions().chat.completions.create({ messages: [{ role: "user", content: "q" }] })).rejects.toBeInstanceOf(NeatrootsHalt);
-    const makeAnthropic = (): any => ({ messages: { create: async (_p: unknown) => "should not run" }, withOptions: () => makeAnthropic() });
+    const makeAnthropic = (): any => ({ messages: { create: async (_p: unknown) => "should not run", stream: async (_p: unknown) => "should not run" }, withOptions: () => makeAnthropic() });
     await expect(wrapAnthropic(makeAnthropic()).withOptions().messages.create({ messages: [] })).rejects.toBeInstanceOf(NeatrootsHalt);
+    await expect(wrapAnthropic(makeAnthropic()).withOptions().messages.stream({ messages: [] })).rejects.toBeInstanceOf(NeatrootsHalt);
   });
 
   it("applies a replay's input, model and system prompt", async () => {

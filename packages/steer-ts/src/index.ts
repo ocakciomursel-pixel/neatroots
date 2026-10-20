@@ -391,15 +391,17 @@ export function wrapOpenAI<T extends object>(client: T): T {
   return client;
 }
 
-/** Adds neatroots guidance to an Anthropic client (messages.create and withOptions), in place. */
+/** Adds neatroots guidance to an Anthropic client (messages.create, messages.stream, and withOptions), in place. */
 export function wrapAnthropic<T extends object>(client: T): T {
   const c = client as unknown as { messages?: Record<string, unknown> };
-  wrapMethod(c.messages, "create", (p, note) => {
+  const applyGuidance = (p: Record<string, unknown>, note: Note) => {
     const msgs = (p.messages as Msg[]) ?? [];
     const last = msgs[msgs.length - 1];
     const next = last?.role === "user" ? [...msgs.slice(0, -1), appendText(last, guidanceBlock(note))] : [...msgs, { role: "user", content: [{ type: "text", text: guidanceBlock(note) }] }];
     return { ...p, messages: next };
-  }, overrideAnthropic);
+  };
+  wrapMethod(c.messages, "create", applyGuidance, overrideAnthropic);
+  wrapMethod(c.messages, "stream", applyGuidance, overrideAnthropic);
   wrapFactory(client as unknown as Record<string, unknown>, "withOptions", (next) => wrapAnthropic(next));
   return client;
 }
