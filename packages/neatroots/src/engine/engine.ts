@@ -417,6 +417,7 @@ export class Engine {
     for (const lc of this.registry.rules()) {
       const rule = lc.check as RuleCheck;
       if (!this.appliesTo(rule, run)) continue;
+      if (this.roots.store.hasDismissedFinding(run.traceId, rule.id)) continue;
       if (rule.rule.type === "run_end" && !atEnd) continue;
       let hit: RuleHit | null;
       try {
@@ -528,11 +529,13 @@ export class Engine {
     snap: TraceSnapshot,
     spanId: string | null,
   ): Promise<"unavailable" | void> {
+    if (this.roots.store.hasDismissedFinding(run.traceId, check.id)) return;
     let result: DecisionResult;
     try {
       result = await this.decisions.decide(evidence, [toQuestion(check, params)]);
       this.decisionDown = false;
     } catch (err) {
+      if (this.roots.store.hasDismissedFinding(run.traceId, check.id)) return;
       if (err instanceof DecisionUnavailableError || err instanceof LlmUnavailableError) {
         if (!this.decisionDown) log.warn(`questions skipped: ${(err as Error).message}`);
         this.decisionDown = true;
@@ -558,6 +561,7 @@ export class Engine {
       }
       return;
     }
+    if (this.roots.store.hasDismissedFinding(run.traceId, check.id)) return;
     const answer = result.answers[check.id];
     const verdict = flagged(check, result);
     this.roots.store.insertDecision({
@@ -587,6 +591,8 @@ export class Engine {
       // A second look, with a quote that must be in the run, before anything is raised.
       if ((run.rejected.get(check.id) ?? 0) >= 3) return;
       const check2 = check.kind === "yes_no" ? await verifyFlag(this.llm, fillTemplate(check.ask, params) || check.ask, evidence) : undefined;
+      // The user can dismiss while the second opinion is in flight.
+      if (this.roots.store.hasDismissedFinding(run.traceId, check.id)) return;
       if (check2 && !check2.verified) {
         run.rejected.set(check.id, (run.rejected.get(check.id) ?? 0) + 1);
         log.debug(`${check.id}: flag not confirmed on a second look${check2.quote ? ` (quote: ${clip(check2.quote, 80)})` : ""}`);

@@ -1028,6 +1028,11 @@ export class Store {
     return r ? this.findingFromRow(r) : undefined;
   }
 
+  /** A user's dismissal suppresses the check for this run, including later batches/rechecks. */
+  hasDismissedFinding(traceId: string, checkId: string): boolean {
+    return this.db.prepare("SELECT 1 FROM findings WHERE trace_id = ? AND check_id = ? AND status = 'dismissed' LIMIT 1").get(traceId, checkId) !== undefined;
+  }
+
   latestFindingFor(traceId: string, checkId: string): Finding | undefined {
     const r = this.db
       .prepare("SELECT * FROM findings WHERE trace_id = ? AND check_id = ? ORDER BY created_ms DESC LIMIT 1")
